@@ -1,0 +1,72 @@
+#!/bin/sh
+cd /etc/openvpn
+
+[ -f placeholder ] || {
+    echo "Waiting for the other container to generate keys and config..."
+    exit 1
+}
+
+MY_IP_ADDR=$(curl -s http://myip.enix.org/REMOTE_ADDR)
+CLIENT_NAME=$1
+
+[ "$MY_IP_ADDR" ] || {
+    echo "Sorry, I could not figure out my public IP address."
+    echo "(I use http://myip.enix.org/REMOTE_ADDR/ for that purpose.)"
+    exit 1
+}
+
+[ "$CLIENT_NAME" ] || {
+    echo "Provide client name as first argument for serveconfig"
+    exit 1
+}
+
+cd pki/clients
+
+# client
+[ -f "$CLIENT_NAME.key" ] || {
+    openssl genrsa -out "$CLIENT_NAME.key" 2048
+    openssl req -new -key "$CLIENT_NAME.key" -subj "/CN=$CLIENT_NAME/" -out "$CLIENT_NAME.csr"
+    openssl x509 -req -days 3650 -CA ../rootca.crt -CAkey ../rootca.key -CAcreateserial -CAserial ../serial -in "$CLIENT_NAME.csr" -out "$CLIENT_NAME.crt"
+    chmod 600 *.key
+}
+
+[ -f  "$CLIENT_NAME.ovpn" ] || cat > "$CLIENT_NAME.ovpn" <<EOF
+client
+cipher AES-256-CBC
+nobind
+dev tun
+redirect-gateway def1
+
+<key>
+`cat "$CLIENT_NAME.key"`
+</key>
+<cert>
+`cat "$CLIENT_NAME.crt"`
+</cert>
+<ca>
+`cat ../rootca.crt`
+</ca>
+
+<connection>
+remote $MY_IP_ADDR 1194 udp
+</connection>
+
+<connection>
+remote $MY_IP_ADDR 443 tcp-client
+</connection>
+EOF
+
+cat > ../../client.http <<EOF
+HTTP/1.0 200 OK
+Content-Disposition: inline; filename="$CLIENT_NAME.ovpn"
+Content-Type: application/x-openvpn-profile
+Content-Length: `wc -c "$CLIENT_NAME.ovpn"`
+
+`cat "$CLIENT_NAME.ovpn"`
+EOF
+
+echo "https://$MY_IP_ADDR:8080/"
+socat -d -d \
+    OPENSSL-LISTEN:8080,fork,reuseaddr,key=../server.key,certificate=../server.crt,verify=0 \
+    EXEC:'cat ../../client.http' \
+    2>../../http8080.log

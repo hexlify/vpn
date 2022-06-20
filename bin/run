@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -e
+
+[ -d /dev/net ] ||
+    mkdir -p /dev/net
+[ -c /dev/net/tun ] ||
+    mknod /dev/net/tun c 10 200
+
+mkdir -p /etc/openvpn/pki/clients
+cd /etc/openvpn/pki
+
+[ -f ../placeholder ] || {
+    # CA
+    openssl genrsa -out rootca.key 2048
+    openssl req -new -x509 -key rootca.key -days 3650 -subj /CN=CA/ -out rootca.crt
+
+    # server
+    openssl genrsa -out server.key 2048
+    openssl req -new -key server.key -subj /CN=Server/ -out server.csr
+    openssl x509 -req -days 3650 -CA rootca.crt -CAkey rootca.key -CAcreateserial -CAserial serial -in server.csr -out server.crt
+    openssl dhparam -out dh.crt 2048
+
+    chmod 600 *.key
+}
+
+cd ..
+[ -f tcp443.conf ] || cat >tcp443.conf <<EOF
+server 192.168.255.0 255.255.255.128
+cipher AES-256-CBC
+verb 3
+duplicate-cn
+key pki/server.key
+cert pki/server.crt
+ca pki/rootca.crt
+dh pki/dh.crt
+keepalive 10 60
+persist-key
+persist-tun
+push "dhcp-option DNS 8.8.8.8"
+push "dhcp-option DNS 8.8.4.4"
+
+proto tcp-server
+port 443
+dev tun443
+status openvpn-status-443.log
+EOF
+
+[ -f udp1194.conf ] || cat >udp1194.conf <<EOF
+server 192.168.255.128 255.255.255.128
+cipher AES-256-CBC
+verb 3
+duplicate-cn
+key pki/server.key
+cert pki/server.crt
+ca pki/rootca.crt
+dh pki/dh.crt
+keepalive 10 60
+persist-key
+persist-tun
+push "dhcp-option DNS 8.8.8.8"
+push "dhcp-option DNS 8.8.4.4"
+
+proto udp
+port 1194
+dev tun1194
+status openvpn-status-1194.log
+EOF
+
+iptables -t nat -A POSTROUTING -s 192.168.255.0/24 -o eth0 -j MASQUERADE
+
+touch tcp443.log udp1194.log http8080.log
+while true ; do openvpn tcp443.conf ; done >> tcp443.log &
+while true ; do openvpn udp1194.conf ; done >> udp1194.log &
+
+touch placeholder
+tail -F *.log
