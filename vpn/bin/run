@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -e
 
+[ "$DNS" ] || {
+    echo 'Environment variable $DNS not passed'
+    exit 1
+}
+
 [ -d /dev/net ] ||
     mkdir -p /dev/net
 [ -c /dev/net/tun ] ||
@@ -36,8 +41,7 @@ dh pki/dh.crt
 keepalive 10 60
 persist-key
 persist-tun
-push "dhcp-option DNS 8.8.8.8"
-push "dhcp-option DNS 8.8.4.4"
+push "dhcp-option DNS $DNS"
 
 proto tcp-server
 port 443
@@ -57,8 +61,7 @@ dh pki/dh.crt
 keepalive 10 60
 persist-key
 persist-tun
-push "dhcp-option DNS 8.8.8.8"
-push "dhcp-option DNS 8.8.4.4"
+push "dhcp-option DNS $DNS"
 
 proto udp
 port 1194
@@ -68,7 +71,7 @@ EOF
 
 iptables -t nat -A POSTROUTING -s 192.168.255.0/24 -o eth0 -j MASQUERADE
 
-touch tcp443.log udp1194.log http8080.log
+touch tcp443.log udp1194.log http8081.log
 while true ; do openvpn tcp443.conf ; done >> tcp443.log &
 while true ; do openvpn udp1194.conf ; done >> udp1194.log &
 

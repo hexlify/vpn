@@ -65,8 +65,8 @@ Content-Length: `wc -c "$CLIENT_NAME.ovpn"`
 `cat "$CLIENT_NAME.ovpn"`
 EOF
 
-echo "https://$MY_IP_ADDR:8080/"
+echo "https://$MY_IP_ADDR:8081/"
 socat -d -d \
-    OPENSSL-LISTEN:8080,fork,reuseaddr,key=../server.key,certificate=../server.crt,verify=0 \
+    OPENSSL-LISTEN:8081,fork,reuseaddr,key=../server.key,certificate=../server.crt,verify=0 \
     EXEC:'cat ../../client.http' \
-    2>../../http8080.log
+    2>../../http8081.log
